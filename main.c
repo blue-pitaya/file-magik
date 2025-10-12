@@ -53,6 +53,7 @@ int main(void) {
     UI_init(&ui);
     int key = -1;
     do {
+        clear();
         UI_handle_key(&ui, key);
         UI_render(&ui);
         refresh();

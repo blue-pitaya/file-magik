@@ -9,7 +9,8 @@ typedef enum {
 
 enum { FileList_MAX_FILES = 1024 };
 typedef struct {
-    char *files[FileList_MAX_FILES];
+    char *file_name[FileList_MAX_FILES];
+    unsigned int file_type[FileList_MAX_FILES];
     int size;
     int selected_idx;
 } FileList;

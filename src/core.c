@@ -1,5 +1,6 @@
 #include "core.h"
 #include <dirent.h>
+#include <glib.h>
 #include <linux/limits.h>
 #include <ncurses.h>
 #include <stdlib.h>
@@ -8,9 +9,14 @@
 
 enum { MAIN_FRAME_Y = 1 };
 
-void append_file(UI *ui, char *filename) {
-    ui->list.files[ui->list.size] = filename;
+void append_file(UI *ui, struct dirent *dir) {
+    ui->list.file_name[ui->list.size] = dir->d_name;
+    ui->list.file_type[ui->list.size] = dir->d_type;
     ui->list.size++;
+}
+
+int _strcmp(const void *p1, const void *p2) {
+    return strcmp(*(const char **)p1, *(const char **)p2);
 }
 
 Err load_files(UI *ui) {
@@ -21,13 +27,21 @@ Err load_files(UI *ui) {
 
     struct dirent *dir;
     while ((dir = readdir(d)) != NULL) {
-        append_file(ui, dir->d_name);
+        if (g_str_equal(dir->d_name, ".")) {
+            continue;
+        }
+        if (g_str_equal(dir->d_name, "..")) {
+            continue;
+        }
+        append_file(ui, dir);
     }
     closedir(d);
 
     if (ui->list.size > 0) {
         ui->list.selected_idx = 0;
     }
+
+    qsort(ui->list.file_name, ui->list.size, sizeof(char *), _strcmp);
 
     return ERR_OK;
 }
@@ -100,10 +114,16 @@ void draw_file_list(UI *ui) {
     for (int i = 0; i < ui->list.size; i++) {
         if (i == ui->list.selected_idx) {
             attron(COLOR_PAIR(3));
-            mvprintw(y, 1, "%s", ui->list.files[i]);
+            mvprintw(y, 1, "%s", ui->list.file_name[i]);
             attroff(COLOR_PAIR(3));
         } else {
-            mvprintw(y, 1, "%s", ui->list.files[i]);
+            if (ui->list.file_type[i] == DT_DIR) {
+                attron(COLOR_PAIR(2) | A_BOLD);
+                mvprintw(y, 1, "%s", ui->list.file_name[i]);
+                attroff(COLOR_PAIR(2) | A_BOLD);
+            } else {
+                mvprintw(y, 1, "%s", ui->list.file_name[i]);
+            }
         }
         y++;
         if (y >= ui->terminal_h) {
