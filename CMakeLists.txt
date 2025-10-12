@@ -16,7 +16,8 @@ link_directories(${GLIB2_LIBRARY_DIRS})
 
 set(SOURCES
     main.c
-    src/core.c
+    src/FileList.c
+    src/UI.c
 )
 add_executable(main ${SOURCES})
 
