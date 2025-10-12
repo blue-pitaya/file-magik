@@ -1,10 +1,13 @@
+#include "src/core.h"
 #include <dirent.h>
-#include <locale.h>
 #include <glib.h>
+#include <locale.h>
 #include <ncurses.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+
+UI ui;
 
 int file_magik_read_dir() {
     DIR *d;
@@ -34,44 +37,27 @@ int file_magik_read_dir() {
 int main(void) {
     setlocale(LC_ALL, "");
 
-    struct winsize w;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1) {
-        perror("ioctl");
-        return 1;
-    }
-    int terminal_w = w.ws_col;
-    int terminal_h = w.ws_row;
-
     initscr();
+
     curs_set(0);
     // raw();
     keypad(stdscr, TRUE);
     noecho();
 
-    for (int x = 0; x < terminal_w; x++) {
-        mvprintw(0, x, "%s", "\u2500");
-        mvprintw(terminal_h - 1, x, "%s", "\u2500");
-    }
-    for (int y = 0; y < terminal_h; y++) {
-        mvprintw(y, 0, "%s", "\u2502");
-        mvprintw(y, terminal_w - 1, "\u2502");
-    }
-    mvprintw(0, 0, "\u250C");
-    mvprintw(0, terminal_w - 1, "\u2510");
-    mvprintw(terminal_h - 1, 0, "\u2514");
-    mvprintw(terminal_h - 1, terminal_w - 1, "\u2518");
-    refresh();
+    start_color();
+    use_default_colors();
+    init_pair(1, COLOR_WHITE, 16);
+    init_pair(2, COLOR_BLUE, 16);
+    init_pair(3, 16, COLOR_WHITE);
 
-    int ch = getch();
-    move(10, 10);
-    if (ch == 'j') {
-        printw("NICE");
-    } else {
-        printw("Errror!");
-    }
-    refresh();
-
-    getch();
+    UI_init(&ui);
+    int key = -1;
+    do {
+        UI_handle_key(&ui, key);
+        UI_render(&ui);
+        refresh();
+        key = getch();
+    } while (key != 'q');
 
     endwin();
 
