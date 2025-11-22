@@ -32,15 +32,26 @@ Err load_terminal_size(UI *ui) {
 void draw_border(UI *ui) {
     int w = ui->terminal_w;
     int h = ui->terminal_h;
+    int split_line_1_x = w / 3;
+    int split_line_2_x = 2 * w / 3;
+
     for (int x = 0; x < w; x++) {
         mvprintw(MAIN_FRAME_Y, x, "%s", "\u2500");
         mvprintw(h - 1, x, "%s", "\u2500");
     }
+
     for (int y = MAIN_FRAME_Y; y < h; y++) {
         mvprintw(y, 0, "%s", "\u2502");
+        mvprintw(y, w / 3, "%s", "\u2502");
+        mvprintw(y, 2 * w / 3, "%s", "\u2502");
         mvprintw(y, w - 1, "\u2502");
     }
+
     mvprintw(MAIN_FRAME_Y, 0, "\u250C");
+    mvprintw(MAIN_FRAME_Y, split_line_1_x, "\u252C");
+    mvprintw(h - 1, split_line_1_x, "\u2534");
+    mvprintw(MAIN_FRAME_Y, split_line_2_x, "\u252C");
+    mvprintw(h - 1, split_line_2_x, "\u2534");
     mvprintw(MAIN_FRAME_Y, w - 1, "\u2510");
 
     mvprintw(h - 1, 0, "\u2514");

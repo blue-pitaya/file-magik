@@ -1,4 +1,4 @@
-#include "src/UI.h"
+#include "UI.h"
 #include <dirent.h>
 #include <glib.h>
 #include <locale.h>

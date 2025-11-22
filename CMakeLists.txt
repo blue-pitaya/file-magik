@@ -13,13 +13,17 @@ find_package(Curses REQUIRED)
 include_directories(${GLIB2_INCLUDE_DIRS})
 link_directories(${GLIB2_LIBRARY_DIRS})
 
-
 set(SOURCES
     main.c
     src/FileList.c
     src/UI.c
+    include/FileList.h
+    include/UI.h
+    include/core.h
 )
 add_executable(main ${SOURCES})
+
+target_include_directories(main PRIVATE include)
 
 # Link libraries
 target_link_libraries(main ${GLIB2_LIBRARIES} ${CURSES_LIBRARIES})
