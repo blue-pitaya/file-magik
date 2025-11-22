@@ -10,6 +10,10 @@
 
 enum { MAIN_FRAME_Y = 1 };
 
+int get_cwd_panel_x(UI *ui) {
+    return ui->terminal_w / 3 + 1;
+}
+
 Err load_cwd(UI *ui) {
     if (getcwd(ui->cwd, PATH_MAX) == NULL) {
         return ERR_FAIL;
@@ -66,18 +70,19 @@ void draw_cwd(UI *ui) {
 
 void draw_file_list(UI *ui) {
     int y = MAIN_FRAME_Y + 1;
+    int x = get_cwd_panel_x(ui);
     for (int i = 0; i < ui->list.size; i++) {
         if (i == ui->list.selected_idx) {
             attron(COLOR_PAIR(3));
-            mvprintw(y, 1, "%s", ui->list.items[i].file_name);
+            mvprintw(y, x, "%s", ui->list.items[i].file_name);
             attroff(COLOR_PAIR(3));
         } else {
             if (ui->list.items[i].file_type == DT_DIR) {
                 attron(COLOR_PAIR(2) | A_BOLD);
-                mvprintw(y, 1, "%s", ui->list.items[i].file_name);
+                mvprintw(y, x, "%s", ui->list.items[i].file_name);
                 attroff(COLOR_PAIR(2) | A_BOLD);
             } else {
-                mvprintw(y, 1, "%s", ui->list.items[i].file_name);
+                mvprintw(y, x, "%s", ui->list.items[i].file_name);
             }
         }
         y++;
