@@ -1,9 +1,8 @@
 #include "InteractiveList.h"
 #include "glib.h"
 #include <ncurses.h>
-#include <stdlib.h>
 
-InteractiveList *InteractiveList_new() {
+InteractiveList *InteractiveList_new(int show_selection) {
     InteractiveList *il = g_malloc(sizeof(InteractiveList));
 
     il->items = NULL;
@@ -12,17 +11,19 @@ InteractiveList *InteractiveList_new() {
     il->size.x = 0;
     il->size.y = 0;
     il->selected_idx = -1;
+    il->show_selection = show_selection;
 
     return il;
 }
 
 void InteractiveList_free(InteractiveList *il) {
     for (GList *list = il->items; list != NULL; list = list->next) {
-        // FIXME: this is bad
-        g_free(list->data);
+        InteractiveListItem *item = (InteractiveListItem *)list->data;
+        g_string_free(item->name, TRUE);
+        g_free(item);
     }
     g_list_free(il->items);
-    free(il);
+    g_free(il);
 }
 
 void InteractiveList_move_idx(InteractiveList *il, int n) {
@@ -55,12 +56,12 @@ void InteractiveList_append(InteractiveList *il, char *name,
     }
 }
 
-void InteractiveList_set_bounds(InteractiveList *il, int x, int y, int w,
-                                int h) {
-    il->position.x = x;
-    il->position.y = y;
-    il->size.x = w;
-    il->size.y = h;
+void InteractiveList_set_bounds(InteractiveList *il, Vec2d position,
+                                Vec2d size) {
+    il->position.x = position.x;
+    il->position.y = position.y;
+    il->size.x = size.x;
+    il->size.y = size.y;
 }
 
 void InteractiveList_draw(InteractiveList *il) {
@@ -73,22 +74,31 @@ void InteractiveList_draw(InteractiveList *il) {
         if (idx >= il->size.y) {
             break;
         }
+
         InteractiveListItem *item = list->data;
-        if (idx == il->selected_idx) {
+        if (il->show_selection && idx == il->selected_idx) {
             attron(COLOR_PAIR(3));
             mvprintw(y, x, "%s", item->name->str);
             attroff(COLOR_PAIR(3));
-        } else {
+        } else if (item->style == 1) {
             // TODO: magic number
-            if (item->style == 1) {
-                attron(COLOR_PAIR(2) | A_BOLD);
-                mvprintw(y, x, "%s", item->name->str);
-                attroff(COLOR_PAIR(2) | A_BOLD);
-            } else {
-                mvprintw(y, x, "%s", item->name->str);
-            }
+            attron(COLOR_PAIR(2) | A_BOLD);
+            mvprintw(y, x, "%s", item->name->str);
+            attroff(COLOR_PAIR(2) | A_BOLD);
+        } else {
+            mvprintw(y, x, "%s", item->name->str);
         }
+
         idx++;
         y++;
     }
+}
+
+gint compare(gconstpointer _a, gconstpointer _b) {
+    return g_strcmp0(((InteractiveListItem *)_a)->name->str,
+                     ((InteractiveListItem *)_b)->name->str);
+}
+
+void InteractiveList_sort(InteractiveList *this) {
+    this->items = g_list_sort(this->items, compare);
 }

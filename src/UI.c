@@ -10,13 +10,13 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-enum { MAIN_FRAME_Y = 1 };
+static const Vec2d content_position = {.x = 1, .y = 2};
 
 UI *UI_new() {
     UI *ui = g_malloc(sizeof(UI));
-    ui->parent_section = InteractiveList_new();
-    ui->cwd_section = InteractiveList_new();
-    ui->child_section = InteractiveList_new();
+    ui->parent_section = InteractiveList_new(0);
+    ui->cwd_section = InteractiveList_new(1);
+    ui->child_section = InteractiveList_new(0);
     ui->cwd = g_string_new("");
     ui->terminal_size = Vec2d_new(0, 0);
 
@@ -29,15 +29,7 @@ void UI_free(UI *ui) {
     InteractiveList_free(ui->child_section);
     g_string_free(ui->cwd, TRUE);
     Vec2d_free(ui->terminal_size);
-    free(ui);
-}
-
-int get_cwd_panel_x(UI *ui) {
-    return ui->terminal_size->x / 3 + 1;
-}
-
-int get_parent_panel_x(UI *ui) {
-    return MAIN_FRAME_Y + 1;
+    g_free(ui);
 }
 
 void load_cwd(UI *ui) {
@@ -64,23 +56,23 @@ void draw_border(UI *ui) {
     int split_line_2_x = 2 * w / 3;
 
     for (int x = 0; x < w; x++) {
-        mvprintw(MAIN_FRAME_Y, x, "%s", "\u2500");
+        mvprintw(content_position.y - 1, x, "%s", "\u2500");
         mvprintw(h - 1, x, "%s", "\u2500");
     }
 
-    for (int y = MAIN_FRAME_Y; y < h; y++) {
+    for (int y = content_position.y - 1; y < h; y++) {
         mvprintw(y, 0, "%s", "\u2502");
         mvprintw(y, w / 3, "%s", "\u2502");
         mvprintw(y, 2 * w / 3, "%s", "\u2502");
         mvprintw(y, w - 1, "\u2502");
     }
 
-    mvprintw(MAIN_FRAME_Y, 0, "\u250C");
-    mvprintw(MAIN_FRAME_Y, split_line_1_x, "\u252C");
+    mvprintw(content_position.y - 1, 0, "\u250C");
+    mvprintw(content_position.y - 1, split_line_1_x, "\u252C");
     mvprintw(h - 1, split_line_1_x, "\u2534");
-    mvprintw(MAIN_FRAME_Y, split_line_2_x, "\u252C");
+    mvprintw(content_position.y - 1, split_line_2_x, "\u252C");
     mvprintw(h - 1, split_line_2_x, "\u2534");
-    mvprintw(MAIN_FRAME_Y, w - 1, "\u2510");
+    mvprintw(content_position.y - 1, w - 1, "\u2510");
 
     mvprintw(h - 1, 0, "\u2514");
     mvprintw(h - 1, w - 1, "\u2518");
@@ -117,8 +109,7 @@ Err load_dir_content(UI *ui, InteractiveList *list, const char *path) {
     }
     closedir(d);
 
-    // FIXME:
-    //  qsort(f->items, f->size, sizeof(FileListItem), _strcmp);
+    InteractiveList_sort(list);
 
     return ERR_OK;
 }
@@ -139,13 +130,20 @@ Err UI_init(UI *ui) {
         return err;
     }
 
-    // FIXME: invalid size for both
-    int x = get_cwd_panel_x(ui);
-    int y = MAIN_FRAME_Y + 1;
-    InteractiveList_set_bounds(ui->cwd_section, x, y, 20, 10);
-    y = MAIN_FRAME_Y + 1;
-    x = get_parent_panel_x(ui);
-    InteractiveList_set_bounds(ui->parent_section, x, y, 20, 10);
+    Vec2d content_size;
+    content_size.x = ui->terminal_size->x - 2;
+    content_size.y = ui->terminal_size->y - 3;
+    Vec2d panel_size;
+    int number_of_panels = 3;
+    panel_size.x = (content_size.x - (number_of_panels - 1)) / 3;
+    panel_size.y = content_size.y;
+
+    InteractiveList_set_bounds(ui->parent_section, content_position,
+                               panel_size);
+    Vec2d cwd_panel_position;
+    cwd_panel_position.x = content_position.x + panel_size.x + 1;
+    cwd_panel_position.y = content_position.y;
+    InteractiveList_set_bounds(ui->cwd_section, cwd_panel_position, panel_size);
 
     return ERR_OK;
 };

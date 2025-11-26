@@ -10,5 +10,5 @@ Vec2d *Vec2d_new(int x, int y) {
 }
 
 void Vec2d_free(Vec2d *v) {
-    free(v);
+    g_free(v);
 }
