@@ -25,5 +25,7 @@ void InteractiveList_append(InteractiveList *, char *, unsigned int);
 void InteractiveList_set_bounds(InteractiveList *, Vec2d, Vec2d);
 void InteractiveList_draw(InteractiveList *);
 void InteractiveList_sort(InteractiveList *);
+InteractiveListItem *InteractiveList_get_selected_item(InteractiveList *);
+void InteractiveList_clear(InteractiveList *);
 
 #endif

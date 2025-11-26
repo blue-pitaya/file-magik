@@ -16,13 +16,18 @@ InteractiveList *InteractiveList_new(int show_selection) {
     return il;
 }
 
-void InteractiveList_free(InteractiveList *il) {
+void free_items(InteractiveList *il) {
     for (GList *list = il->items; list != NULL; list = list->next) {
         InteractiveListItem *item = (InteractiveListItem *)list->data;
         g_string_free(item->name, TRUE);
         g_free(item);
     }
     g_list_free(il->items);
+    il->items = NULL;
+}
+
+void InteractiveList_free(InteractiveList *il) {
+    free_items(il);
     g_free(il);
 }
 
@@ -99,6 +104,23 @@ gint compare(gconstpointer _a, gconstpointer _b) {
                      ((InteractiveListItem *)_b)->name->str);
 }
 
-void InteractiveList_sort(InteractiveList *this) {
-    this->items = g_list_sort(this->items, compare);
+void InteractiveList_sort(InteractiveList *il) {
+    il->items = g_list_sort(il->items, compare);
+}
+
+InteractiveListItem *InteractiveList_get_selected_item(InteractiveList *il) {
+    int idx = 0;
+    for (GList *list = il->items; list != NULL; list = list->next) {
+        if (idx == il->selected_idx) {
+            return (InteractiveListItem *)list->data;
+        }
+        idx++;
+    }
+
+    return NULL;
+}
+
+void InteractiveList_clear(InteractiveList *il) {
+    free_items(il);
+    il->selected_idx = -1;
 }

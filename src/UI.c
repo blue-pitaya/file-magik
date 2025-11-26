@@ -6,7 +6,6 @@
 #include <glib.h>
 #include <linux/limits.h>
 #include <ncurses.h>
-#include <stdlib.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -114,6 +113,31 @@ Err load_dir_content(UI *ui, InteractiveList *list, const char *path) {
     return ERR_OK;
 }
 
+void on_resize(UI *ui) {
+    Vec2d content_size;
+    content_size.x = ui->terminal_size->x - 2;
+    content_size.y = ui->terminal_size->y - 3;
+
+    Vec2d panel_size;
+    int number_of_panels = 3;
+    panel_size.x = (content_size.x - (number_of_panels - 1)) / number_of_panels;
+    panel_size.y = content_size.y;
+
+    InteractiveList_set_bounds(ui->parent_section, content_position,
+                               panel_size);
+
+    Vec2d cwd_panel_position;
+    cwd_panel_position.x = content_position.x + panel_size.x + 1;
+    cwd_panel_position.y = content_position.y;
+    InteractiveList_set_bounds(ui->cwd_section, cwd_panel_position, panel_size);
+
+    Vec2d child_panel_position;
+    child_panel_position.x = cwd_panel_position.x + panel_size.x + 2;
+    child_panel_position.y = content_position.y;
+    InteractiveList_set_bounds(ui->child_section, child_panel_position,
+                               panel_size);
+}
+
 Err UI_init(UI *ui) {
     int err;
     load_cwd(ui);
@@ -130,34 +154,44 @@ Err UI_init(UI *ui) {
         return err;
     }
 
-    Vec2d content_size;
-    content_size.x = ui->terminal_size->x - 2;
-    content_size.y = ui->terminal_size->y - 3;
-    Vec2d panel_size;
-    int number_of_panels = 3;
-    panel_size.x = (content_size.x - (number_of_panels - 1)) / 3;
-    panel_size.y = content_size.y;
-
-    InteractiveList_set_bounds(ui->parent_section, content_position,
-                               panel_size);
-    Vec2d cwd_panel_position;
-    cwd_panel_position.x = content_position.x + panel_size.x + 1;
-    cwd_panel_position.y = content_position.y;
-    InteractiveList_set_bounds(ui->cwd_section, cwd_panel_position, panel_size);
+    on_resize(ui);
 
     return ERR_OK;
 };
 
+void handle_cwd_panel_selection_change() {
+}
+
 Err UI_handle_key(UI *ui, int key) {
+    int is_list_move_key = 0;
+    int last_cwd_section_selected_idx = ui->cwd_section->selected_idx;
+
     switch (key) {
     case 'q':
         return ERR_EXIT;
     case 'j':
+        is_list_move_key = 1;
         InteractiveList_move_idx(ui->cwd_section, 1);
         break;
     case 'k':
+        is_list_move_key = 1;
         InteractiveList_move_idx(ui->cwd_section, -1);
         break;
+    }
+
+    int selected_idx = ui->cwd_section->selected_idx;
+    if (is_list_move_key && (last_cwd_section_selected_idx != selected_idx)) {
+        InteractiveListItem *item =
+            InteractiveList_get_selected_item(ui->cwd_section);
+        if (item != NULL && item->style == 1) {
+            GString *path = g_string_new(item->name->str);
+            g_string_prepend(path, "./");
+            // TODO: handle errpr
+            load_dir_content(ui, ui->child_section, path->str);
+            g_free(path);
+        } else {
+            InteractiveList_clear(ui->child_section);
+        }
     }
 
     return ERR_OK;
@@ -168,4 +202,5 @@ void UI_render(UI *ui) {
     draw_cwd(ui);
     InteractiveList_draw(ui->cwd_section);
     InteractiveList_draw(ui->parent_section);
+    InteractiveList_draw(ui->child_section);
 }
