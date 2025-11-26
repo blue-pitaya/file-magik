@@ -1,14 +1,21 @@
 #ifndef FILE_MAGIK_UI
 #define FILE_MAGIK_UI
 
-#include "FileList.h"
+#include "InteractiveList.h"
+#include "Vec2d.h"
+#include "core.h"
+#include "glib.h"
 
 typedef struct {
-    FileList list;
-    char *cwd;
-    int terminal_w;
-    int terminal_h;
+    InteractiveList *parent_section;
+    InteractiveList *cwd_section;
+    InteractiveList *child_section;
+    GString *cwd;
+    Vec2d *terminal_size;
 } UI;
+
+UI *UI_new();
+void UI_free(UI *);
 
 Err UI_init(UI *);
 Err UI_handle_key(UI *, int key);

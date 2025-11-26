@@ -6,8 +6,6 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-UI ui;
-
 int main(void) {
     setlocale(LC_ALL, "");
 
@@ -24,12 +22,14 @@ int main(void) {
     init_pair(2, COLOR_BLUE, 16);
     init_pair(3, 16, COLOR_WHITE);
 
-    UI_init(&ui);
+    UI *ui = UI_new();
+    UI_init(ui);
+
     int key = -1;
     do {
         clear();
-        UI_handle_key(&ui, key);
-        UI_render(&ui);
+        UI_handle_key(ui, key);
+        UI_render(ui);
         refresh();
         key = getch();
     } while (key != 'q');

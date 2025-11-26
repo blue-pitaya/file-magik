@@ -15,11 +15,13 @@ link_directories(${GLIB2_LIBRARY_DIRS})
 
 set(SOURCES
     main.c
-    src/FileList.c
-    src/UI.c
-    include/FileList.h
+    include/InteractiveList.h
     include/UI.h
+    include/Vec2d.h
     include/core.h
+    src/InteractiveList.c
+    src/UI.c
+    src/Vec2d.c
 )
 add_executable(main ${SOURCES})
 
