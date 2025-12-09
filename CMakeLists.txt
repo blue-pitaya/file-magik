@@ -1,32 +1,19 @@
 cmake_minimum_required(VERSION 3.10)
-project(FileMagik C)
+project(FileMagik LANGUAGES CXX)
 
-set(CMAKE_C_STANDARD 99)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find required packages
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(GLIB2 REQUIRED glib-2.0)
 find_package(Curses REQUIRED)
+include_directories(${CURSES_INCLUDE_DIR})
 
-# Include directories for GLib
-include_directories(${GLIB2_INCLUDE_DIRS})
-link_directories(${GLIB2_LIBRARY_DIRS})
+file(GLOB SOURCES CONFIGURE_DEPENDS "src/*.cpp")
+file(GLOB HEADERS CONFIGURE_DEPENDS "src/*.h")
 
-set(SOURCES
-    main.c
-    src/FileList.c
-    src/UI.c
-    include/FileList.h
-    include/UI.h
-    include/core.h
+add_executable(FileMagik
+    ${SOURCES}
+    ${HEADERS}
 )
-add_executable(main ${SOURCES})
 
-target_include_directories(main PRIVATE include)
-
-# Link libraries
-target_link_libraries(main ${GLIB2_LIBRARIES} ${CURSES_LIBRARIES})
-
-# Add compile flags
-target_compile_options(main PRIVATE ${GLIB2_CFLAGS_OTHER})
+target_include_directories(FileMagik PRIVATE src)
+target_link_libraries(FileMagik ${CURSES_LIBRARIES})
