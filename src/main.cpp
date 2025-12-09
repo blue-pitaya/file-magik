@@ -1,6 +1,5 @@
 #include "UI.h"
 #include <dirent.h>
-#include <glib.h>
 #include <locale.h>
 #include <ncurses.h>
 #include <sys/ioctl.h>
@@ -22,14 +21,16 @@ int main(void) {
     init_pair(2, COLOR_BLUE, 16);
     init_pair(3, 16, COLOR_WHITE);
 
-    UI *ui = UI_new();
-    UI_init(ui);
+    mvprintw(10, 19, "HELLO");
+
+    UI ui;
+    ui.init();
 
     int key = -1;
     do {
         clear();
-        UI_handle_key(ui, key);
-        UI_render(ui);
+        ui.handle_key(key);
+        ui.render();
         refresh();
         key = getch();
     } while (key != 'q');
