@@ -11,9 +11,10 @@ int main(void) {
     initscr();
 
     curs_set(0);
-    // raw();
-    keypad(stdscr, TRUE);
+    cbreak();
+    keypad(stdscr, true);
     noecho();
+    nodelay(stdscr, true);
 
     start_color();
     use_default_colors();
@@ -21,17 +22,17 @@ int main(void) {
     init_pair(2, COLOR_BLUE, 16);
     init_pair(3, 16, COLOR_WHITE);
 
-    mvprintw(10, 19, "HELLO");
-
     UI ui;
     ui.init();
 
     int key = -1;
     do {
-        clear();
+        erase();
         ui.handle_key(key);
         ui.render();
         refresh();
+
+        napms(16);
         key = getch();
     } while (key != 'q');
 

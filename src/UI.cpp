@@ -16,6 +16,8 @@ UI::UI()
 }
 
 void UI::load_dir_content(InteractiveList &list, const std::string &path) {
+    list.clear();
+
     DIR *d;
     if ((d = opendir(path.c_str())) == NULL) {
         throw std::runtime_error("Error.");
@@ -96,6 +98,11 @@ void UI::handle_key(int key) {
         is_list_move_key = true;
         cwd_section.move_idx(-1);
         break;
+    case 'h':
+        is_list_move_key = true;
+        this->go_parent();
+
+        break;
     }
 
     int selected_idx = cwd_section.selected_idx;
@@ -109,6 +116,12 @@ void UI::handle_key(int key) {
             child_section.clear();
         }
     }
+}
+
+void UI::go_parent() {
+    // this->cwd = std::filesystem::current_path().parent_path();
+    //  load_dir_content(this->cwd_section, ".");
+    //  load_dir_content(this->parent_section, "..");
 }
 
 void UI::render() {
