@@ -4,7 +4,6 @@
 #include <ncurses.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <unistd.h>
 
 //FIXME: should allow more items
@@ -28,6 +27,7 @@ struct list {
 struct ui {
 	char cwd_path[PATH_MAX];
 	struct list cwd_list;
+	struct list child_list;
 };
 
 static void list_init(struct list *list)
@@ -85,109 +85,6 @@ static void list_sort(struct list *list)
 	qsort(list->items, list->count, sizeof(struct list_item), item_cmp);
 }
 
-//static struct list_item *list_selected(struct list *l)
-//{
-//	if (l->selected_idx >= 0 && l->selected_idx < l->count)
-//		return &l->items[l->selected_idx];
-//
-//	return NULL;
-//}
-
-//static void list_draw(struct list *l)
-//{
-//	struct list_item *it;
-//	int y;
-//	int x;
-//	int i;
-//
-//	y = l->position.y;
-//	x = l->position.x;
-//
-//	for (i = 0; i < l->count; i++, y++) {
-//		it = &l->items[i];
-//
-//		if (l->show_selection && i == l->selected_idx) {
-//			attron(COLOR_PAIR(3));
-//			mvprintw(y, x, "%s", it->name);
-//			attroff(COLOR_PAIR(3));
-//		} else if (it->style == STYLE_DIR) {
-//			attron(COLOR_PAIR(2) | A_BOLD);
-//			mvprintw(y, x, "%s", it->name);
-//			attroff(COLOR_PAIR(2) | A_BOLD);
-//		} else {
-//			mvprintw(y, x, "%s", it->name);
-//		}
-//	}
-//}
-
-//static void ui_layout(struct ui *ui)
-//{
-//	int cx;
-//	int cy;
-//	int cw;
-//	int ch;
-//	int px;
-//
-//	cx = 1;
-//	cy = 2;
-//	cw = ui->term.x - 2;
-//	ch = ui->term.y - 3;
-//	px = (cw - 2) / 3;
-//
-//	ui->parent.position.x = cx;
-//	ui->parent.position.y = cy;
-//	ui->parent.size.x = px;
-//	ui->parent.size.y = ch;
-//
-//	ui->cwd.position.x = cx + px + 1;
-//	ui->cwd.position.y = cy;
-//	ui->cwd.size.x = px;
-//	ui->cwd.size.y = ch;
-//
-//	ui->child.position.x = cx + px * 2 + 2;
-//	ui->child.position.y = cy;
-//	ui->child.size.x = px;
-//	ui->child.size.y = ch;
-//}
-
-//static void ui_update_child(struct ui *ui)
-//{
-//	char path[NAME_MAX + 3];
-//	struct list_item *it;
-//
-//	it = list_selected(&ui->cwd);
-//	if (!it || it->style != STYLE_DIR) {
-//		list_clear(&ui->child);
-//		return;
-//	}
-//
-//	snprintf(path, sizeof(path), "./%s", it->name);
-//	load_dir(&ui->child, path);
-//}
-
-//static void ui_handle_key(struct ui *ui, int key)
-//{
-//	int prev;
-//
-//	prev = ui->cwd.selected_idx;
-//
-//	switch (key) {
-//	case 'j':
-//		list_move(&ui->cwd, 1);
-//		break;
-//	case 'k':
-//		list_move(&ui->cwd, -1);
-//		break;
-//	case 'h':
-//		break;
-//	default:
-//		return;
-//	}
-//
-//	if (prev != ui->cwd.selected_idx)
-//		ui_update_child(ui);
-//}
-
 static int load_dir(struct list *list, const char *path)
 {
 	struct dirent *e;
@@ -215,19 +112,37 @@ static int load_dir(struct list *list, const char *path)
 	return 0;
 }
 
+static void ui_update_child(struct ui *ui)
+{
+	struct list_item *sel;
+	char path[PATH_MAX];
+
+	list_clear(&ui->child_list);
+
+	if (ui->cwd_list.selected_idx < 0)
+		return;
+
+	sel = &ui->cwd_list.items[ui->cwd_list.selected_idx];
+	if (sel->style != STYLE_DIR)
+		return;
+
+	snprintf(path, sizeof(path), "%s/%s", ui->cwd_path, sel->name);
+	load_dir(&ui->child_list, path);
+}
+
 static void ui_init(struct ui *ui)
 {
-	struct winsize w;
-
 	list_init(&ui->cwd_list);
+	list_init(&ui->child_list);
 
 	if (!getcwd(ui->cwd_path, sizeof(ui->cwd_path)))
 		strcpy(ui->cwd_path, ".");
 
-	load_dir(&ui->cwd_list, ".");
+	load_dir(&ui->cwd_list, ui->cwd_path);
 
 	if (ui->cwd_list.count > 0) {
 		ui->cwd_list.selected_idx = 0;
+		ui_update_child(ui);
 	}
 }
 
@@ -306,6 +221,12 @@ static void ui_render(struct ui *ui)
 
 	draw_border(3, 1, COLS, LINES - 1);
 	list_draw(&ui->cwd_list, col_w + 1, 2, col_w - 1, LINES - 3);
+	list_draw(&ui->child_list, 2 * COLS / 3 + 1, 2,
+		  COLS - 1 - (2 * COLS / 3 + 1), LINES - 3);
+
+	attron(COLOR_PAIR(2) | A_BOLD);
+	mvprintw(0, 0, " %s ", ui->cwd_path);
+	attroff(COLOR_PAIR(2) | A_BOLD);
 }
 
 static void term_init(void)
@@ -344,18 +265,16 @@ static void term_cleanup(void)
 int main(void)
 {
 	struct ui *ui;
+	int key;
 
 	ui = malloc(sizeof(*ui));
 	if (!ui)
 		return 1;
 
-	if (!getcwd(ui->cwd_path, sizeof(ui->cwd_path)))
-		strcpy(ui->cwd_path, ".");
-
 	term_init();
 	ui_init(ui);
 
-	int key = ERR;
+	key = ERR;
 	do {
 		erase();
 
@@ -363,18 +282,15 @@ int main(void)
 		switch (key) {
 		case 'j':
 			list_move(&ui->cwd_list, 1);
+			ui_update_child(ui);
 			break;
 		case 'k':
 			list_move(&ui->cwd_list, -1);
+			ui_update_child(ui);
 			break;
 		}
 
 		ui_render(ui);
-
-		/* draw cwd */
-		attron(COLOR_PAIR(2) | A_BOLD);
-		mvprintw(0, 0, " %s ", ui->cwd_path);
-		attroff(COLOR_PAIR(2) | A_BOLD);
 
 		refresh();
 		napms(16);
