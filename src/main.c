@@ -1,4 +1,5 @@
 #include <dirent.h>
+#include <linux/limits.h>
 #include <locale.h>
 #include <ncurses.h>
 #include <stdlib.h>
@@ -6,47 +7,33 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#define MAX_NAME 256
+//FIXME: should allow more items
 #define MAX_ITEMS 2048
-#define MAX_CWD 4096
 
 #define STYLE_FILE 0
 #define STYLE_DIR 1
 
-struct vec2d {
-	int x;
-	int y;
-};
-
 struct list_item {
-	char name[MAX_NAME];
+	/* +1 for terminator */
+	char name[NAME_MAX + 1];
 	int style;
 };
 
 struct list {
 	struct list_item items[MAX_ITEMS];
 	int count;
-	struct vec2d position;
-	struct vec2d size;
 	int selected_idx;
-	int show_selection;
 };
 
 struct ui {
-	struct list parent;
-	struct list cwd;
-	struct list child;
-	char cwd_path[MAX_CWD];
-	struct vec2d term;
+	char cwd_path[PATH_MAX];
+	struct list cwd_list;
 };
 
-/* List operations */
-
-static void list_init(struct list *l, int show_selection)
+static void list_init(struct list *list)
 {
-	memset(l, 0, sizeof(*l));
-	l->selected_idx = -1;
-	l->show_selection = show_selection;
+	memset(list, 0, sizeof(*list));
+	list->selected_idx = -1;
 }
 
 static void list_clear(struct list *l)
@@ -55,41 +42,36 @@ static void list_clear(struct list *l)
 	l->selected_idx = -1;
 }
 
-static int list_append(struct list *l, const char *name, int style)
+static int list_append(struct list *list, const char *name, int style)
 {
 	struct list_item *it;
 
-	if (l->count >= MAX_ITEMS)
-		return -1;
+	if (list->count >= MAX_ITEMS)
+		return ERR;
 
-	it = &l->items[l->count++];
-	strncpy(it->name, name, MAX_NAME - 1);
-	it->name[MAX_NAME - 1] = '\0';
+	it = &list->items[list->count++];
+	strncpy(it->name, name, NAME_MAX);
+	it->name[NAME_MAX] = '\0';
 	it->style = style;
-
-	if (l->selected_idx < 0)
-		l->selected_idx = 0;
 
 	return 0;
 }
 
-static void list_move(struct list *l, int n)
+static void list_move(struct list *list, int n)
 {
-	int r;
+	int next;
 
-	if (l->count <= 0)
+	if (list->count <= 0)
 		return;
 
-	r = l->selected_idx + n;
+	next = list->selected_idx + n;
 
-	if (r < 0)
-		l->selected_idx = 0;
-	else if (r >= l->size.y)
-		l->selected_idx = l->size.y - 1;
-	else if (r >= l->count)
-		l->selected_idx = l->count - 1;
+	if (next < 0)
+		list->selected_idx = 0;
+	else if (next >= list->count)
+		list->selected_idx = list->count - 1;
 	else
-		l->selected_idx = r;
+		list->selected_idx = next;
 }
 
 static int item_cmp(const void *a, const void *b)
@@ -98,59 +80,125 @@ static int item_cmp(const void *a, const void *b)
 		      ((const struct list_item *)b)->name);
 }
 
-static void list_sort(struct list *l)
+static void list_sort(struct list *list)
 {
-	qsort(l->items, l->count, sizeof(struct list_item), item_cmp);
+	qsort(list->items, list->count, sizeof(struct list_item), item_cmp);
 }
 
-static struct list_item *list_selected(struct list *l)
-{
-	if (l->selected_idx >= 0 && l->selected_idx < l->count)
-		return &l->items[l->selected_idx];
+//static struct list_item *list_selected(struct list *l)
+//{
+//	if (l->selected_idx >= 0 && l->selected_idx < l->count)
+//		return &l->items[l->selected_idx];
+//
+//	return NULL;
+//}
 
-	return NULL;
-}
+//static void list_draw(struct list *l)
+//{
+//	struct list_item *it;
+//	int y;
+//	int x;
+//	int i;
+//
+//	y = l->position.y;
+//	x = l->position.x;
+//
+//	for (i = 0; i < l->count; i++, y++) {
+//		it = &l->items[i];
+//
+//		if (l->show_selection && i == l->selected_idx) {
+//			attron(COLOR_PAIR(3));
+//			mvprintw(y, x, "%s", it->name);
+//			attroff(COLOR_PAIR(3));
+//		} else if (it->style == STYLE_DIR) {
+//			attron(COLOR_PAIR(2) | A_BOLD);
+//			mvprintw(y, x, "%s", it->name);
+//			attroff(COLOR_PAIR(2) | A_BOLD);
+//		} else {
+//			mvprintw(y, x, "%s", it->name);
+//		}
+//	}
+//}
 
-static void list_draw(struct list *l)
-{
-	struct list_item *it;
-	int y;
-	int x;
-	int i;
+//static void ui_layout(struct ui *ui)
+//{
+//	int cx;
+//	int cy;
+//	int cw;
+//	int ch;
+//	int px;
+//
+//	cx = 1;
+//	cy = 2;
+//	cw = ui->term.x - 2;
+//	ch = ui->term.y - 3;
+//	px = (cw - 2) / 3;
+//
+//	ui->parent.position.x = cx;
+//	ui->parent.position.y = cy;
+//	ui->parent.size.x = px;
+//	ui->parent.size.y = ch;
+//
+//	ui->cwd.position.x = cx + px + 1;
+//	ui->cwd.position.y = cy;
+//	ui->cwd.size.x = px;
+//	ui->cwd.size.y = ch;
+//
+//	ui->child.position.x = cx + px * 2 + 2;
+//	ui->child.position.y = cy;
+//	ui->child.size.x = px;
+//	ui->child.size.y = ch;
+//}
 
-	y = l->position.y;
-	x = l->position.x;
+//static void ui_update_child(struct ui *ui)
+//{
+//	char path[NAME_MAX + 3];
+//	struct list_item *it;
+//
+//	it = list_selected(&ui->cwd);
+//	if (!it || it->style != STYLE_DIR) {
+//		list_clear(&ui->child);
+//		return;
+//	}
+//
+//	snprintf(path, sizeof(path), "./%s", it->name);
+//	load_dir(&ui->child, path);
+//}
 
-	for (i = 0; i < l->count; i++, y++) {
-		it = &l->items[i];
+//static void ui_handle_key(struct ui *ui, int key)
+//{
+//	int prev;
+//
+//	prev = ui->cwd.selected_idx;
+//
+//	switch (key) {
+//	case 'j':
+//		list_move(&ui->cwd, 1);
+//		break;
+//	case 'k':
+//		list_move(&ui->cwd, -1);
+//		break;
+//	case 'h':
+//		break;
+//	default:
+//		return;
+//	}
+//
+//	if (prev != ui->cwd.selected_idx)
+//		ui_update_child(ui);
+//}
 
-		if (l->show_selection && i == l->selected_idx) {
-			attron(COLOR_PAIR(3));
-			mvprintw(y, x, "%s", it->name);
-			attroff(COLOR_PAIR(3));
-		} else if (it->style == STYLE_DIR) {
-			attron(COLOR_PAIR(2) | A_BOLD);
-			mvprintw(y, x, "%s", it->name);
-			attroff(COLOR_PAIR(2) | A_BOLD);
-		} else {
-			mvprintw(y, x, "%s", it->name);
-		}
-	}
-}
-
-/* Directory loading */
-
-static void load_dir(struct list *l, const char *path)
+static int load_dir(struct list *list, const char *path)
 {
 	struct dirent *e;
 	DIR *d;
 	int style;
 
-	list_clear(l);
+	list_clear(list);
 
 	d = opendir(path);
 	if (!d)
-		return;
+		return -1;
 
 	while ((e = readdir(d))) {
 		if (e->d_name[0] == '.' &&
@@ -159,152 +207,105 @@ static void load_dir(struct list *l, const char *path)
 			continue;
 
 		style = (e->d_type == DT_DIR) ? STYLE_DIR : STYLE_FILE;
-		list_append(l, e->d_name, style);
+		list_append(list, e->d_name, style);
 	}
 
 	closedir(d);
-	list_sort(l);
-}
-
-/* UI */
-
-static void ui_layout(struct ui *ui)
-{
-	int cx;
-	int cy;
-	int cw;
-	int ch;
-	int px;
-
-	cx = 1;
-	cy = 2;
-	cw = ui->term.x - 2;
-	ch = ui->term.y - 3;
-	px = (cw - 2) / 3;
-
-	ui->parent.position.x = cx;
-	ui->parent.position.y = cy;
-	ui->parent.size.x = px;
-	ui->parent.size.y = ch;
-
-	ui->cwd.position.x = cx + px + 1;
-	ui->cwd.position.y = cy;
-	ui->cwd.size.x = px;
-	ui->cwd.size.y = ch;
-
-	ui->child.position.x = cx + px * 2 + 2;
-	ui->child.position.y = cy;
-	ui->child.size.x = px;
-	ui->child.size.y = ch;
+	list_sort(list);
+	return 0;
 }
 
 static void ui_init(struct ui *ui)
 {
 	struct winsize w;
 
-	list_init(&ui->parent, 0);
-	list_init(&ui->cwd, 1);
-	list_init(&ui->child, 0);
+	list_init(&ui->cwd_list);
 
-	if (!getcwd(ui->cwd_path, MAX_CWD))
+	if (!getcwd(ui->cwd_path, sizeof(ui->cwd_path)))
 		strcpy(ui->cwd_path, ".");
 
-	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1) {
-		ui->term.x = 80;
-		ui->term.y = 24;
-	} else {
-		ui->term.x = w.ws_col;
-		ui->term.y = w.ws_row;
-	}
+	load_dir(&ui->cwd_list, ".");
 
-	load_dir(&ui->cwd, ".");
-	load_dir(&ui->parent, "..");
-	ui_layout(ui);
-}
-
-static void ui_update_child(struct ui *ui)
-{
-	struct list_item *it;
-	char path[MAX_NAME + 3];
-
-	it = list_selected(&ui->cwd);
-	if (it && it->style == STYLE_DIR) {
-		snprintf(path, sizeof(path), "./%s", it->name);
-		load_dir(&ui->child, path);
-	} else {
-		list_clear(&ui->child);
+	if (ui->cwd_list.count > 0) {
+		ui->cwd_list.selected_idx = 0;
 	}
 }
 
-static void ui_handle_key(struct ui *ui, int key)
+static void draw_border(int cols, int top_y, int w, int h)
 {
-	int prev;
-
-	prev = ui->cwd.selected_idx;
-
-	switch (key) {
-	case 'j':
-		list_move(&ui->cwd, 1);
-		break;
-	case 'k':
-		list_move(&ui->cwd, -1);
-		break;
-	case 'h':
-		break;
-	default:
-		return;
-	}
-
-	if (prev != ui->cwd.selected_idx)
-		ui_update_child(ui);
-}
-
-static void ui_render_border(struct ui *ui)
-{
-	int w;
-	int h;
-	int s1;
-	int s2;
+	int bot_y;
 	int i;
+	int j;
+	int x;
 
-	w = ui->term.x;
-	h = ui->term.y;
-	s1 = w / 3;
-	s2 = 2 * w / 3;
+	bot_y = top_y + h - 1;
 
+	/* horizontal lines */
 	for (i = 0; i < w; i++) {
-		mvprintw(1, i, "\u2500");
-		mvprintw(h - 1, i, "\u2500");
+		mvprintw(top_y, i, "\u2500");
+		mvprintw(bot_y, i, "\u2500");
 	}
 
-	for (i = 1; i < h; i++) {
+	/* left and right edges */
+	for (i = top_y; i <= bot_y; i++) {
 		mvprintw(i, 0, "\u2502");
-		mvprintw(i, s1, "\u2502");
-		mvprintw(i, s2, "\u2502");
 		mvprintw(i, w - 1, "\u2502");
 	}
 
-	mvprintw(1, 0, "\u250C");
-	mvprintw(1, s1, "\u252C");
-	mvprintw(h - 1, s1, "\u2534");
-	mvprintw(1, s2, "\u252C");
-	mvprintw(h - 1, s2, "\u2534");
-	mvprintw(1, w - 1, "\u2510");
-	mvprintw(h - 1, 0, "\u2514");
-	mvprintw(h - 1, w - 1, "\u2518");
+	/* vertical dividers */
+	for (j = 1; j < cols; j++) {
+		x = j * w / cols;
+
+		for (i = top_y; i <= bot_y; i++)
+			mvprintw(i, x, "\u2502");
+
+		mvprintw(top_y, x, "\u252C");
+		mvprintw(bot_y, x, "\u2534");
+	}
+
+	/* corners */
+	mvprintw(top_y, 0, "\u250C");
+	mvprintw(top_y, w - 1, "\u2510");
+	mvprintw(bot_y, 0, "\u2514");
+	mvprintw(bot_y, w - 1, "\u2518");
+}
+
+static void list_draw(struct list *list, int x, int y, int w, int h)
+{
+	struct list_item *it;
+	int len;
+	int i;
+
+	for (i = 0; i < list->count && i < h; i++) {
+		it = &list->items[i];
+		len = strlen(it->name);
+
+		if (list->selected_idx >= 0 && i == list->selected_idx) {
+			attron(COLOR_PAIR(3));
+		} else if (it->style == STYLE_DIR) {
+			attron(COLOR_PAIR(2) | A_BOLD);
+		}
+
+		if (len >= w)
+			mvprintw(y + i, x, "%.*s~", w - 2, it->name);
+		else
+			mvprintw(y + i, x, "%s", it->name);
+
+		if (list->selected_idx >= 0 && i == list->selected_idx)
+			attroff(COLOR_PAIR(3));
+		else if (it->style == STYLE_DIR)
+			attroff(COLOR_PAIR(2) | A_BOLD);
+	}
 }
 
 static void ui_render(struct ui *ui)
 {
-	ui_render_border(ui);
+	int col_w;
 
-	attron(COLOR_PAIR(2) | A_BOLD);
-	mvprintw(0, 0, " %s ", ui->cwd_path);
-	attroff(COLOR_PAIR(2) | A_BOLD);
+	col_w = COLS / 3;
 
-	list_draw(&ui->parent);
-	list_draw(&ui->cwd);
-	list_draw(&ui->child);
+	draw_border(3, 1, COLS, LINES - 1);
+	list_draw(&ui->cwd_list, col_w + 1, 2, col_w - 1, LINES - 3);
 }
 
 static void term_init(void)
@@ -340,27 +341,48 @@ static void term_cleanup(void)
 	endwin();
 }
 
-/* Entry point */
-
 int main(void)
 {
-	struct ui ui;
-	int key;
+	struct ui *ui;
+
+	ui = malloc(sizeof(*ui));
+	if (!ui)
+		return 1;
+
+	if (!getcwd(ui->cwd_path, sizeof(ui->cwd_path)))
+		strcpy(ui->cwd_path, ".");
 
 	term_init();
+	ui_init(ui);
 
-	ui_init(&ui);
-	key = -1;
+	int key = ERR;
 	do {
 		erase();
-		ui_handle_key(&ui, key);
-		ui_render(&ui);
+
+		/* handle keys */
+		switch (key) {
+		case 'j':
+			list_move(&ui->cwd_list, 1);
+			break;
+		case 'k':
+			list_move(&ui->cwd_list, -1);
+			break;
+		}
+
+		ui_render(ui);
+
+		/* draw cwd */
+		attron(COLOR_PAIR(2) | A_BOLD);
+		mvprintw(0, 0, " %s ", ui->cwd_path);
+		attroff(COLOR_PAIR(2) | A_BOLD);
+
 		refresh();
 		napms(16);
 		key = getch();
 	} while (key != 'q');
 
 	term_cleanup();
+	free(ui);
 
 	return 0;
 }
