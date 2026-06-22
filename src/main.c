@@ -307,6 +307,39 @@ static void ui_render(struct ui *ui)
 	list_draw(&ui->child);
 }
 
+static void term_init(void)
+{
+	/* let C library interpret multibyte/wide characters (e.g. box-drawing) */
+	setlocale(LC_ALL, "");
+
+	/* enter curses mode, allocate stdscr */
+	initscr();
+	/* make the terminal cursor invisible */
+	curs_set(0);
+
+	/* disable line buffering and erase/kill character processing */
+	cbreak();
+	/* let getch() return KEY_LEFT etc. instead of raw escape sequences */
+	keypad(stdscr, TRUE);
+	/* disable automatic echoing of characters typed by the user */
+	noecho();
+	/* make getch() non-blocking */
+	nodelay(stdscr, TRUE);
+
+	/* allocate color pair table and initialize COLORS/COLOR_PAIRS */
+	start_color();
+	/* assign the terminal's native fg/bg to color number -1 */
+	use_default_colors();
+	init_pair(1, COLOR_WHITE, 16);
+	init_pair(2, COLOR_BLUE, 16);
+	init_pair(3, 16, COLOR_WHITE);
+}
+
+static void term_cleanup(void)
+{
+	endwin();
+}
+
 /* Entry point */
 
 int main(void)
@@ -314,22 +347,9 @@ int main(void)
 	struct ui ui;
 	int key;
 
-	setlocale(LC_ALL, "");
-	initscr();
-	curs_set(0);
-	cbreak();
-	keypad(stdscr, TRUE);
-	noecho();
-	nodelay(stdscr, TRUE);
-
-	start_color();
-	use_default_colors();
-	init_pair(1, COLOR_WHITE, 16);
-	init_pair(2, COLOR_BLUE, 16);
-	init_pair(3, 16, COLOR_WHITE);
+	term_init();
 
 	ui_init(&ui);
-
 	key = -1;
 	do {
 		erase();
@@ -340,6 +360,7 @@ int main(void)
 		key = getch();
 	} while (key != 'q');
 
-	endwin();
+	term_cleanup();
+
 	return 0;
 }
