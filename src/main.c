@@ -1,7 +1,9 @@
 #include <dirent.h>
+#include <libgen.h>
 #include <linux/limits.h>
 #include <locale.h>
 #include <ncurses.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -28,6 +30,7 @@ struct ui {
 	char cwd_path[PATH_MAX];
 	struct list cwd_list;
 	struct list child_list;
+	struct list parent_list;
 };
 
 static void list_init(struct list *list)
@@ -130,20 +133,37 @@ static void ui_update_child(struct ui *ui)
 	load_dir(&ui->child_list, path);
 }
 
-static void ui_init(struct ui *ui)
+void ui_load_parent(struct ui *ui)
 {
+	char tmp[PATH_MAX];
+	char *parent;
+
+	list_clear(&ui->parent_list);
+
+	strcpy(tmp, ui->cwd_path);
+	parent = dirname(tmp);
+
+	load_dir(&ui->parent_list, parent);
+}
+
+static int ui_init(struct ui *ui)
+{
+	if (!getcwd(ui->cwd_path, sizeof(ui->cwd_path)))
+		return -1;
+
 	list_init(&ui->cwd_list);
 	list_init(&ui->child_list);
-
-	if (!getcwd(ui->cwd_path, sizeof(ui->cwd_path)))
-		strcpy(ui->cwd_path, ".");
+	list_init(&ui->parent_list);
 
 	load_dir(&ui->cwd_list, ui->cwd_path);
+	ui_load_parent(ui);
 
 	if (ui->cwd_list.count > 0) {
 		ui->cwd_list.selected_idx = 0;
 		ui_update_child(ui);
 	}
+
+	return 0;
 }
 
 static void draw_border(int cols, int top_y, int w, int h)
@@ -220,6 +240,7 @@ static void ui_render(struct ui *ui)
 	col_w = COLS / 3;
 
 	draw_border(3, 1, COLS, LINES - 1);
+	list_draw(&ui->parent_list, 1, 2, col_w - 1, LINES - 3);
 	list_draw(&ui->cwd_list, col_w + 1, 2, col_w - 1, LINES - 3);
 	list_draw(&ui->child_list, 2 * COLS / 3 + 1, 2,
 		  COLS - 1 - (2 * COLS / 3 + 1), LINES - 3);
@@ -268,11 +289,16 @@ int main(void)
 	int key;
 
 	ui = malloc(sizeof(*ui));
-	if (!ui)
+	if (!ui) {
+		perror("malloc");
 		return 1;
+	}
 
 	term_init();
-	ui_init(ui);
+	if (ui_init(ui)) {
+		perror("ui_init");
+		return 1;
+	}
 
 	key = ERR;
 	do {
