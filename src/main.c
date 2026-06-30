@@ -51,7 +51,7 @@ static void dir_listing_free(struct dir_listing *dl)
 	dl->items = NULL;
 	dl->count = 0;
 	dl->capacity = 0;
-	dl->selected = 0;
+	dl->selected = -1;
 }
 
 static int dir_listing_init(struct dir_listing *dl, const char *path)
@@ -101,11 +101,6 @@ fail:
 	return -1;
 }
 
-static void app_free(struct app *app)
-{
-	free(app);
-}
-
 static int child_dir_listing_init(struct app *app)
 {
 	char path[PATH_MAX];
@@ -116,8 +111,11 @@ static int child_dir_listing_init(struct app *app)
 
 	dir_listing_free(&app->right);
 	if (app->center.items[selected].is_dir) {
-		snprintf(path, sizeof(path), "%s/%s", app->center.path,
-			 app->center.items[selected].name);
+		int ret = snprintf(path, sizeof(path), "%s/%s",
+				   app->center.path,
+				   app->center.items[selected].name);
+		if (ret >= (int)sizeof(path))
+			return -1;
 		if (dir_listing_init(&app->right, path))
 			return -1;
 	}
@@ -152,6 +150,14 @@ fail_right:
 fail_center:
 	dir_listing_free(&app->center);
 	return -1;
+}
+
+static void app_free(struct app *app)
+{
+	dir_listing_free(&app->left);
+	dir_listing_free(&app->center);
+	dir_listing_free(&app->right);
+	free(app);
 }
 
 static int move_center_selected(struct app *app, int n)
@@ -199,26 +205,30 @@ static void draw_border(int cols, int top_y, int w, int h)
 static void list_draw(struct dir_listing *list, int x, int y, int w, int h)
 {
 	int len;
+	int list_count = list->count;
 
-	for (int i = 0; i < list->count && i < h; i++) {
+	for (int i = 0; i < list_count && i < h; i++) {
 		struct dir_listing_item *it = &list->items[i];
 		len = strlen(it->name);
 
 		if (list->selected >= 0 && i == list->selected) {
 			attron(COLOR_PAIR(3));
+			mvhline(y + i, x, ' ', w);
 		} else if (it->is_dir) {
 			attron(COLOR_PAIR(2) | A_BOLD);
 		}
 
-		if (len >= w)
+		if (len >= w) {
 			mvprintw(y + i, x, "%.*s~", w - 2, it->name);
-		else
+		} else {
 			mvprintw(y + i, x, "%s", it->name);
+		}
 
-		if (list->selected >= 0 && i == list->selected)
+		if (list->selected >= 0 && i == list->selected) {
 			attroff(COLOR_PAIR(3));
-		else if (it->is_dir)
+		} else if (it->is_dir) {
 			attroff(COLOR_PAIR(2) | A_BOLD);
+		}
 	}
 }
 
@@ -277,6 +287,7 @@ int main(void)
 
 	if (app_init(app)) {
 		perror("app_init");
+		free(app);
 		return 1;
 	}
 
