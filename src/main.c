@@ -2,222 +2,211 @@
 #include <libgen.h>
 #include <linux/limits.h>
 #include <locale.h>
-#include <ncurses.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ncurses.h>
 #include <string.h>
 #include <unistd.h>
 
-//FIXME: should allow more items
-#define MAX_ITEMS 2048
-
-#define STYLE_FILE 0
-#define STYLE_DIR 1
-
-struct list_item {
-	/* +1 for terminator */
-	char name[NAME_MAX + 1];
-	int style;
+struct dir_listing_item {
+	char *name;
+	int is_dir;
 };
 
-struct list {
-	struct list_item items[MAX_ITEMS];
-	int count;
-	int selected_idx;
+struct dir_listing {
+	char path[PATH_MAX];
+	struct dir_listing_item *items;
+	size_t count;
+	size_t capacity;
+	int selected;
 };
 
-struct ui {
-	char cwd_path[PATH_MAX];
-	struct list cwd_list;
-	struct list child_list;
-	struct list parent_list;
+struct app {
+	struct dir_listing left;
+	struct dir_listing center;
+	struct dir_listing right;
 };
 
-static void list_init(struct list *list)
+static int dir_listing_cmp(const void *a, const void *b)
 {
-	memset(list, 0, sizeof(*list));
-	list->selected_idx = -1;
+	const struct dir_listing_item *ia = a;
+	const struct dir_listing_item *ib = b;
+	if (ia->is_dir != ib->is_dir)
+		return ib->is_dir - ia->is_dir;
+	return strcmp(ia->name, ib->name);
 }
 
-static void list_clear(struct list *l)
+static void dir_listing_sort(struct dir_listing *list)
 {
-	l->count = 0;
-	l->selected_idx = -1;
+	qsort(list->items, list->count, sizeof(struct dir_listing_item),
+	      dir_listing_cmp);
 }
 
-static int list_append(struct list *list, const char *name, int style)
+static void dir_listing_free(struct dir_listing *dl)
 {
-	struct list_item *it;
-
-	if (list->count >= MAX_ITEMS)
-		return ERR;
-
-	it = &list->items[list->count++];
-	strncpy(it->name, name, NAME_MAX);
-	it->name[NAME_MAX] = '\0';
-	it->style = style;
-
-	return 0;
+	for (size_t i = 0; i < dl->count; i++)
+		free(dl->items[i].name);
+	free(dl->items);
+	dl->items = NULL;
+	dl->count = 0;
+	dl->capacity = 0;
+	dl->selected = 0;
 }
 
-static void list_move(struct list *list, int n)
+static int dir_listing_init(struct dir_listing *dl, const char *path)
 {
-	int next;
+	dl->selected = -1;
+	strlcpy(dl->path, path, sizeof(dl->path));
 
-	if (list->count <= 0)
-		return;
-
-	next = list->selected_idx + n;
-
-	if (next < 0)
-		list->selected_idx = 0;
-	else if (next >= list->count)
-		list->selected_idx = list->count - 1;
-	else
-		list->selected_idx = next;
-}
-
-static int item_cmp(const void *a, const void *b)
-{
-	return strcmp(((const struct list_item *)a)->name,
-		      ((const struct list_item *)b)->name);
-}
-
-static void list_sort(struct list *list)
-{
-	qsort(list->items, list->count, sizeof(struct list_item), item_cmp);
-}
-
-static int load_dir(struct list *list, const char *path)
-{
-	struct dirent *e;
-	DIR *d;
-	int style;
-
-	list_clear(list);
-
-	d = opendir(path);
+	DIR *d = opendir(path);
 	if (!d)
 		return -1;
 
+	struct dir_listing_item *item;
+	struct dirent *e;
 	while ((e = readdir(d))) {
 		if (e->d_name[0] == '.' &&
 		    (e->d_name[1] == '\0' ||
 		     (e->d_name[1] == '.' && e->d_name[2] == '\0')))
 			continue;
 
-		style = (e->d_type == DT_DIR) ? STYLE_DIR : STYLE_FILE;
-		list_append(list, e->d_name, style);
+		if (dl->count >= dl->capacity) {
+			size_t new_cap = dl->capacity ? dl->capacity * 2 : 16;
+			void *tmp = realloc(dl->items, new_cap * sizeof(*item));
+			if (!tmp)
+				goto fail;
+			dl->items = tmp;
+			dl->capacity = new_cap;
+		}
+
+		char *name = strdup(e->d_name);
+		if (!name)
+			goto fail;
+
+		dl->items[dl->count].is_dir = e->d_type == DT_DIR;
+		dl->items[dl->count].name = name;
+		dl->count++;
 	}
 
+	dir_listing_sort(dl);
+
 	closedir(d);
-	list_sort(list);
+
+	return 0;
+fail:
+	dir_listing_free(dl);
+	closedir(d);
+
+	return -1;
+}
+
+static void app_free(struct app *app)
+{
+	free(app);
+}
+
+static int child_dir_listing_init(struct app *app)
+{
+	char path[PATH_MAX];
+	int selected = app->center.selected;
+
+	if (selected < 0)
+		return 0;
+
+	dir_listing_free(&app->right);
+	if (app->center.items[selected].is_dir) {
+		snprintf(path, sizeof(path), "%s/%s", app->center.path,
+			 app->center.items[selected].name);
+		if (dir_listing_init(&app->right, path))
+			return -1;
+	}
+
 	return 0;
 }
 
-static void ui_update_child(struct ui *ui)
+static int app_init(struct app *app)
 {
-	struct list_item *sel;
-	char path[PATH_MAX];
-
-	list_clear(&ui->child_list);
-
-	if (ui->cwd_list.selected_idx < 0)
-		return;
-
-	sel = &ui->cwd_list.items[ui->cwd_list.selected_idx];
-	if (sel->style != STYLE_DIR)
-		return;
-
-	snprintf(path, sizeof(path), "%s/%s", ui->cwd_path, sel->name);
-	load_dir(&ui->child_list, path);
-}
-
-void ui_load_parent(struct ui *ui)
-{
-	char tmp[PATH_MAX];
-	char *parent;
-
-	list_clear(&ui->parent_list);
-
-	strcpy(tmp, ui->cwd_path);
-	parent = dirname(tmp);
-
-	load_dir(&ui->parent_list, parent);
-}
-
-static int ui_init(struct ui *ui)
-{
-	if (!getcwd(ui->cwd_path, sizeof(ui->cwd_path)))
+	char cwd[PATH_MAX];
+	if (!getcwd(cwd, sizeof(cwd)))
 		return -1;
 
-	list_init(&ui->cwd_list);
-	list_init(&ui->child_list);
-	list_init(&ui->parent_list);
+	if (dir_listing_init(&app->center, cwd))
+		return -1;
 
-	load_dir(&ui->cwd_list, ui->cwd_path);
-	ui_load_parent(ui);
-
-	if (ui->cwd_list.count > 0) {
-		ui->cwd_list.selected_idx = 0;
-		ui_update_child(ui);
+	if (app->center.count > 0) {
+		app->center.selected = 0;
+		if (child_dir_listing_init(app))
+			goto fail_center;
 	}
+
+	char tmp[PATH_MAX];
+	strlcpy(tmp, cwd, sizeof(tmp));
+	if (dir_listing_init(&app->left, dirname(tmp)))
+		goto fail_right;
+
+	return 0;
+
+fail_right:
+	dir_listing_free(&app->right);
+fail_center:
+	dir_listing_free(&app->center);
+	return -1;
+}
+
+static int move_center_selected(struct app *app, int n)
+{
+	if (app->center.count == 0)
+		return 0;
+
+	int next = app->center.selected + n;
+	if (next < 0)
+		next = 0;
+	else if (next >= (int)app->center.count)
+		next = app->center.count - 1;
+
+	app->center.selected = next;
+	child_dir_listing_init(app);
 
 	return 0;
 }
 
 static void draw_border(int cols, int top_y, int w, int h)
 {
-	int bot_y;
-	int i;
-	int j;
-	int x;
+	int bot_y = top_y + h - 1;
 
-	bot_y = top_y + h - 1;
-
-	/* horizontal lines */
-	for (i = 0; i < w; i++) {
+	for (int i = 0; i < w; i++) {
 		mvprintw(top_y, i, "\u2500");
 		mvprintw(bot_y, i, "\u2500");
 	}
-
-	/* left and right edges */
-	for (i = top_y; i <= bot_y; i++) {
+	for (int i = top_y; i <= bot_y; i++) {
 		mvprintw(i, 0, "\u2502");
 		mvprintw(i, w - 1, "\u2502");
 	}
-
-	/* vertical dividers */
-	for (j = 1; j < cols; j++) {
-		x = j * w / cols;
-
-		for (i = top_y; i <= bot_y; i++)
+	for (int j = 1; j < cols; j++) {
+		int x = j * w / cols;
+		for (int i = top_y; i <= bot_y; i++)
 			mvprintw(i, x, "\u2502");
-
 		mvprintw(top_y, x, "\u252C");
 		mvprintw(bot_y, x, "\u2534");
 	}
-
-	/* corners */
 	mvprintw(top_y, 0, "\u250C");
 	mvprintw(top_y, w - 1, "\u2510");
 	mvprintw(bot_y, 0, "\u2514");
 	mvprintw(bot_y, w - 1, "\u2518");
 }
 
-static void list_draw(struct list *list, int x, int y, int w, int h)
+static void list_draw(struct dir_listing *list, int x, int y, int w, int h)
 {
-	struct list_item *it;
 	int len;
-	int i;
 
-	for (i = 0; i < list->count && i < h; i++) {
-		it = &list->items[i];
+	for (int i = 0; i < list->count && i < h; i++) {
+		struct dir_listing_item *it = &list->items[i];
 		len = strlen(it->name);
 
-		if (list->selected_idx >= 0 && i == list->selected_idx) {
+		if (list->selected >= 0 && i == list->selected) {
 			attron(COLOR_PAIR(3));
-		} else if (it->style == STYLE_DIR) {
+		} else if (it->is_dir) {
 			attron(COLOR_PAIR(2) | A_BOLD);
 		}
 
@@ -226,27 +215,25 @@ static void list_draw(struct list *list, int x, int y, int w, int h)
 		else
 			mvprintw(y + i, x, "%s", it->name);
 
-		if (list->selected_idx >= 0 && i == list->selected_idx)
+		if (list->selected >= 0 && i == list->selected)
 			attroff(COLOR_PAIR(3));
-		else if (it->style == STYLE_DIR)
+		else if (it->is_dir)
 			attroff(COLOR_PAIR(2) | A_BOLD);
 	}
 }
 
-static void ui_render(struct ui *ui)
+static void render(struct app *app)
 {
-	int col_w;
-
-	col_w = COLS / 3;
+	int col_w = COLS / 3;
 
 	draw_border(3, 1, COLS, LINES - 1);
-	list_draw(&ui->parent_list, 1, 2, col_w - 1, LINES - 3);
-	list_draw(&ui->cwd_list, col_w + 1, 2, col_w - 1, LINES - 3);
-	list_draw(&ui->child_list, 2 * COLS / 3 + 1, 2,
+	list_draw(&app->left, 1, 2, col_w - 1, LINES - 3);
+	list_draw(&app->center, col_w + 1, 2, col_w - 1, LINES - 3);
+	list_draw(&app->right, 2 * COLS / 3 + 1, 2,
 		  COLS - 1 - (2 * COLS / 3 + 1), LINES - 3);
 
 	attron(COLOR_PAIR(2) | A_BOLD);
-	mvprintw(0, 0, " %s ", ui->cwd_path);
+	mvprintw(0, 0, " %s ", app->center.path);
 	attroff(COLOR_PAIR(2) | A_BOLD);
 }
 
@@ -278,53 +265,46 @@ static void term_init(void)
 	init_pair(3, 16, COLOR_WHITE);
 }
 
-static void term_cleanup(void)
-{
-	endwin();
-}
-
 int main(void)
 {
-	struct ui *ui;
-	int key;
+	struct app *app;
 
-	ui = malloc(sizeof(*ui));
-	if (!ui) {
+	app = calloc(1, sizeof(*app));
+	if (!app) {
 		perror("malloc");
 		return 1;
 	}
 
-	term_init();
-	if (ui_init(ui)) {
-		perror("ui_init");
+	if (app_init(app)) {
+		perror("app_init");
 		return 1;
 	}
 
-	key = ERR;
+	term_init();
+
+	int key = -1;
 	do {
 		erase();
 
 		/* handle keys */
 		switch (key) {
 		case 'j':
-			list_move(&ui->cwd_list, 1);
-			ui_update_child(ui);
+			move_center_selected(app, 1);
 			break;
 		case 'k':
-			list_move(&ui->cwd_list, -1);
-			ui_update_child(ui);
+			move_center_selected(app, -1);
 			break;
 		}
 
-		ui_render(ui);
+		render(app);
 
 		refresh();
 		napms(16);
 		key = getch();
 	} while (key != 'q');
 
-	term_cleanup();
-	free(ui);
+	endwin();
+	app_free(app);
 
 	return 0;
 }
