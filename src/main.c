@@ -63,7 +63,6 @@ static int dir_listing_init(struct dir_listing *dl, const char *path)
 	if (!d)
 		return -1;
 
-	struct dir_listing_item *item;
 	struct dirent *e;
 	while ((e = readdir(d))) {
 		if (e->d_name[0] == '.' &&
@@ -73,7 +72,8 @@ static int dir_listing_init(struct dir_listing *dl, const char *path)
 
 		if (dl->count >= dl->capacity) {
 			size_t new_cap = dl->capacity ? dl->capacity * 2 : 16;
-			void *tmp = realloc(dl->items, new_cap * sizeof(*item));
+			void *tmp = realloc(dl->items,
+					    new_cap * sizeof(*dl->items));
 			if (!tmp)
 				goto fail;
 			dl->items = tmp;
