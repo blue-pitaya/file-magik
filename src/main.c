@@ -2,6 +2,7 @@
 #include <libgen.h>
 #include <linux/limits.h>
 #include <locale.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,7 +12,7 @@
 
 struct dir_listing_item {
 	char *name;
-	int is_dir;
+	bool is_dir;
 };
 
 struct dir_listing {
@@ -275,6 +276,33 @@ static void term_init(void)
 	init_pair(3, 16, COLOR_WHITE);
 }
 
+struct dir_listing_item *dir_listing_get_selected_item(struct dir_listing *dl)
+{
+	if (dl->selected < 0 || dl->selected >= dl->count) {
+		return NULL;
+	}
+
+	return &dl->items[dl->selected];
+}
+
+void enter_curr_selected_dir(struct app *app)
+{
+	const struct dir_listing_item *item;
+	item = dir_listing_get_selected_item(&app->center);
+	if (!item || !item->is_dir) {
+		return;
+	}
+
+	char path[PATH_MAX];
+	snprintf(path, PATH_MAX, "%s/%s", app->center.path, item->name);
+
+	dir_listing_free(&app->center);
+	dir_listing_init(&app->center, path);
+	if (app->center.count > 0) {
+		app->center.selected = 0;
+	}
+}
+
 int main(void)
 {
 	struct app *app;
@@ -304,6 +332,9 @@ int main(void)
 			break;
 		case 'k':
 			move_center_selected(app, -1);
+			break;
+		case 'l':
+			enter_curr_selected_dir(app);
 			break;
 		}
 
