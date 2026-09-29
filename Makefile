@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -std=gnu11 -Wall -Wextra -Isrc $(shell pkg-config --cflags ncurses)
+CFLAGS = -g -std=gnu11 -Wall -Wextra -Isrc $(shell pkg-config --cflags ncurses)
 LDFLAGS = $(shell pkg-config --libs ncurses)
 
 SRCS = $(wildcard src/*.c)

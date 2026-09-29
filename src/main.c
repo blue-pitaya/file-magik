@@ -61,8 +61,9 @@ static int dir_listing_init(struct dir_listing *dl, const char *path)
 	strlcpy(dl->path, path, sizeof(dl->path));
 
 	DIR *d = opendir(path);
-	if (!d)
+	if (!d) {
 		return -1;
+	}
 
 	struct dirent *e;
 	while ((e = readdir(d))) {
@@ -102,7 +103,7 @@ fail:
 	return -1;
 }
 
-static int child_dir_listing_init(struct app *app)
+static int dir_listing_child_init(struct app *app)
 {
 	char path[PATH_MAX];
 	int selected = app->center.selected;
@@ -124,25 +125,62 @@ static int child_dir_listing_init(struct app *app)
 	return 0;
 }
 
+static int dir_listing_parent_init(struct app *app)
+{
+	char tmp[PATH_MAX];
+	strlcpy(tmp, app->center.path, sizeof(tmp));
+	const char *x = dirname(tmp);
+	if (dir_listing_init(&app->left, x)) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static int move_center_selected_to(struct app *app, size_t idx)
+{
+	if (app->center.count == 0) {
+		return 0;
+	}
+
+	size_t next = idx;
+	if (next >= app->center.count) {
+		next = app->center.count - 1;
+	}
+
+	app->center.selected = next;
+	if (dir_listing_child_init(app)) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static int move_center_selected_by(struct app *app, int n)
+{
+	int idx = app->center.selected + n;
+	if (idx < 0) {
+		idx = 0;
+	}
+
+	return move_center_selected_to(app, (size_t)idx);
+}
+
 static int app_init(struct app *app)
 {
 	char cwd[PATH_MAX];
-	if (!getcwd(cwd, sizeof(cwd)))
+	if (!getcwd(cwd, sizeof(cwd))) {
 		return -1;
-
-	if (dir_listing_init(&app->center, cwd))
-		return -1;
-
-	if (app->center.count > 0) {
-		app->center.selected = 0;
-		if (child_dir_listing_init(app))
-			goto fail_center;
 	}
-
-	char tmp[PATH_MAX];
-	strlcpy(tmp, cwd, sizeof(tmp));
-	if (dir_listing_init(&app->left, dirname(tmp)))
+	if (dir_listing_init(&app->center, cwd)) {
+		return -1;
+	}
+	if (move_center_selected_to(app, 0)) {
+		goto fail_center;
+	}
+	if (dir_listing_parent_init(app)) {
 		goto fail_right;
+	}
 
 	return 0;
 
@@ -159,23 +197,6 @@ static void app_free(struct app *app)
 	dir_listing_free(&app->center);
 	dir_listing_free(&app->right);
 	free(app);
-}
-
-static int move_center_selected(struct app *app, int n)
-{
-	if (app->center.count == 0)
-		return 0;
-
-	int next = app->center.selected + n;
-	if (next < 0)
-		next = 0;
-	else if (next >= (int)app->center.count)
-		next = app->center.count - 1;
-
-	app->center.selected = next;
-	child_dir_listing_init(app);
-
-	return 0;
 }
 
 static void draw_border(int cols, int top_y, int w, int h)
@@ -298,9 +319,7 @@ void enter_curr_selected_dir(struct app *app)
 
 	dir_listing_free(&app->center);
 	dir_listing_init(&app->center, path);
-	if (app->center.count > 0) {
-		app->center.selected = 0;
-	}
+	move_center_selected_to(app, 0);
 }
 
 int main(void)
@@ -328,10 +347,10 @@ int main(void)
 		/* handle keys */
 		switch (key) {
 		case 'j':
-			move_center_selected(app, 1);
+			move_center_selected_by(app, 1);
 			break;
 		case 'k':
-			move_center_selected(app, -1);
+			move_center_selected_by(app, -1);
 			break;
 		case 'l':
 			enter_curr_selected_dir(app);
