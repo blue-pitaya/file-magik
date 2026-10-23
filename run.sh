@@ -1,6 +1,9 @@
-#!/bin/bash
+#!/bin/sh
 
-set -e
+set -euo pipefail
+cd "$(dirname "$0")"
 
-make
-./file-magik
+start_dir="$PWD"
+
+mvn clean package
+java -jar target/filemagik-1.0.jar "${1:-$start_dir}"
