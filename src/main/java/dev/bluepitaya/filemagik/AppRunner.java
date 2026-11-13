@@ -1,36 +1,43 @@
 package dev.bluepitaya.filemagik;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-
+import dev.bluepitaya.filemagik.explorer.ExplorerHandler;
+import dev.bluepitaya.filemagik.explorer.ExplorerView;
+import dev.bluepitaya.filemagik.terminal.FrameBuffer;
 import dev.bluepitaya.filemagik.terminal.Terminal;
 import dev.bluepitaya.filemagik.terminal.Terminal.TerminalSize;
 import dev.bluepitaya.filemagik.ui.EventLoop;
 import sun.misc.Signal;
 
-final class AppScreen {
-    private static final String MESSAGE = "hello world";
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
+
+final class AppRunner {
 
     private final Terminal terminal;
     private final EventLoop eventLoop;
+    private final ExplorerHandler explorerHandler;
+    private final FrameBuffer frameBuffer;
+    private final ExplorerView explorerView;
 
-    private TerminalSize size;
-
-    public AppScreen(Terminal terminal, EventLoop eventLoop) {
+    public AppRunner(Terminal terminal, EventLoop eventLoop, ExplorerHandler explorerHandler, FrameBuffer frameBuffer, ExplorerView explorerView) {
         this.terminal = terminal;
         this.eventLoop = eventLoop;
+        this.explorerHandler = explorerHandler;
+        this.frameBuffer = frameBuffer;
+        this.explorerView = explorerView;
     }
 
-    public void start() throws IOException {
+    public void run(Path directory) throws IOException {
         terminal.start();
         try {
-            size = terminal.size();
-            eventLoop.afterEach(this::draw);
+            updateSize();
+            eventLoop.afterEach(this::render);
+            eventLoop.invokeLater(() -> explorerHandler.open(directory));
             Signal.handle(new Signal("WINCH"), signal -> eventLoop.invokeLater(this::updateSize));
             Thread inputReader = new Thread(this::readInput, "input-reader");
             inputReader.setDaemon(true);
             inputReader.start();
-            draw();
             eventLoop.run();
         } finally {
             terminal.stop();
@@ -59,25 +66,31 @@ final class AppScreen {
     }
 
     private void handleKey(byte key) {
-        if (key == 'q') {
-            eventLoop.stop();
+        switch ((char) key) {
+            case 'j' -> explorerHandler.moveCursor(1);
+            case 'k' -> explorerHandler.moveCursor(-1);
+            case 'h' -> explorerHandler.goParent();
+            case 'l' -> explorerHandler.enterSelected();
+            case 'q' -> eventLoop.stop();
+            default -> {
+            }
         }
     }
 
     private void updateSize() {
         try {
-            size = terminal.size();
+            TerminalSize size = terminal.size();
+            frameBuffer.resize(size.width(), size.height());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
-    private void draw() {
+    private void render() {
+        frameBuffer.clear();
+        explorerView.render(frameBuffer.canvas());
         try {
-            int row = (size.height() + 1) / 2;
-            int column = Math.max(1, (size.width() - MESSAGE.length()) / 2 + 1);
-            terminal.write("\u001b[2J\u001b[" + row + ";" + column + "H" + MESSAGE);
-            terminal.flush();
+            frameBuffer.flush();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
