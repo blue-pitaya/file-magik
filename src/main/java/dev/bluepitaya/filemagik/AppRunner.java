@@ -2,11 +2,13 @@ package dev.bluepitaya.filemagik;
 
 import dev.bluepitaya.filemagik.explorer.ExplorerHandler;
 import dev.bluepitaya.filemagik.explorer.ExplorerView;
+import dev.bluepitaya.filemagik.terminal.Canvas;
 import dev.bluepitaya.filemagik.terminal.FrameBuffer;
 import dev.bluepitaya.filemagik.terminal.Terminal;
 import dev.bluepitaya.filemagik.terminal.Terminal.TerminalSize;
+import dev.bluepitaya.filemagik.ui.AppCommandException;
 import dev.bluepitaya.filemagik.ui.EventLoop;
-import sun.misc.Signal;
+import dev.bluepitaya.filemagik.ui.StatusBar;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -19,13 +21,16 @@ final class AppRunner {
     private final ExplorerHandler explorerHandler;
     private final FrameBuffer frameBuffer;
     private final ExplorerView explorerView;
+    private final StatusBar statusBar;
 
-    public AppRunner(Terminal terminal, EventLoop eventLoop, ExplorerHandler explorerHandler, FrameBuffer frameBuffer, ExplorerView explorerView) {
+    public AppRunner(Terminal terminal, EventLoop eventLoop, ExplorerHandler explorerHandler, FrameBuffer frameBuffer,
+                     ExplorerView explorerView, StatusBar statusBar) {
         this.terminal = terminal;
         this.eventLoop = eventLoop;
         this.explorerHandler = explorerHandler;
         this.frameBuffer = frameBuffer;
         this.explorerView = explorerView;
+        this.statusBar = statusBar;
     }
 
     public void run(Path directory) throws IOException {
@@ -34,7 +39,7 @@ final class AppRunner {
             updateSize();
             eventLoop.afterEach(this::render);
             eventLoop.invokeLater(() -> explorerHandler.open(directory));
-            Signal.handle(new Signal("WINCH"), signal -> eventLoop.invokeLater(this::updateSize));
+            terminal.onResize(() -> eventLoop.invokeLater(this::updateSize));
             Thread inputReader = new Thread(this::readInput, "input-reader");
             inputReader.setDaemon(true);
             inputReader.start();
@@ -45,18 +50,18 @@ final class AppRunner {
     }
 
     private void readInput() {
-        byte[] buffer = new byte[64];
         try {
             while (true) {
-                int count = terminal.read(buffer, 0);
-                if (count < 0) {
+                int c = terminal.read(100);
+                if (c == Terminal.EOF) {
                     eventLoop.stop();
                     return;
                 }
-                for (int i = 0; i < count; i++) {
-                    byte key = buffer[i];
-                    eventLoop.invokeLater(() -> handleKey(key));
+                if (c == Terminal.TIMEOUT) {
+                    continue;
                 }
+                char key = (char) c;
+                eventLoop.invokeLater(() -> handleKey(key));
             }
         } catch (IOException e) {
             eventLoop.invokeLater(() -> {
@@ -65,30 +70,35 @@ final class AppRunner {
         }
     }
 
-    private void handleKey(byte key) {
-        switch ((char) key) {
-            case 'j' -> explorerHandler.moveCursor(1);
-            case 'k' -> explorerHandler.moveCursor(-1);
-            case 'h' -> explorerHandler.goParent();
-            case 'l' -> explorerHandler.enterSelected();
-            case 'q' -> eventLoop.stop();
-            default -> {
+    private void handleKey(char key) {
+        statusBar.clear(); // an error stays visible until the next keypress
+        try {
+            switch (key) {
+                case 'j' -> explorerHandler.moveCursor(1);
+                case 'k' -> explorerHandler.moveCursor(-1);
+                case 'h' -> explorerHandler.goParent();
+                case 'l' -> explorerHandler.enterSelected();
+                case 'q' -> eventLoop.stop();
+                default -> {
+                }
             }
+        } catch (AppCommandException e) {
+            statusBar.showError(e.getMessage());
         }
     }
 
     private void updateSize() {
-        try {
-            TerminalSize size = terminal.size();
-            frameBuffer.resize(size.width(), size.height());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        TerminalSize size = terminal.size();
+        frameBuffer.resize(size.width(), size.height());
     }
 
     private void render() {
         frameBuffer.clear();
-        explorerView.render(frameBuffer.canvas());
+        Canvas canvas = frameBuffer.canvas();
+        int width = canvas.width();
+        int height = canvas.height();
+        explorerView.render(canvas.sub(0, 0, width, height - 1));
+        statusBar.render(canvas.sub(0, height - 1, width, 1));
         try {
             frameBuffer.flush();
         } catch (IOException e) {

@@ -4,15 +4,20 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import dev.bluepitaya.filemagik.service.DirectoryListing;
 import dev.bluepitaya.filemagik.service.FileEntry;
+import dev.bluepitaya.filemagik.service.FileOpener;
 import dev.bluepitaya.filemagik.service.FileService;
+import dev.bluepitaya.filemagik.service.UnsupportedFileTypeException;
+import dev.bluepitaya.filemagik.ui.AppCommandException;
 
 public final class ExplorerHandler {
 
     private final FileService fileService;
+    private final FileOpener fileOpener;
     private final Consumer<FileEntry> onCurrentEntryChanged;
     private final Map<Path, Path> selectedPaths = new HashMap<>();
 
@@ -22,8 +27,9 @@ public final class ExplorerHandler {
     private int parentCursor = -1;
     private int cursor;
 
-    public ExplorerHandler(FileService fileService, Consumer<FileEntry> onCurrentEntryChanged) {
+    public ExplorerHandler(FileService fileService, FileOpener fileOpener, Consumer<FileEntry> onCurrentEntryChanged) {
         this.fileService = fileService;
+        this.fileOpener = fileOpener;
         this.onCurrentEntryChanged = onCurrentEntryChanged;
     }
 
@@ -56,10 +62,23 @@ public final class ExplorerHandler {
         notifyEntry();
     }
 
-    public void enterSelected() {
-        FileEntry entry = currentEntry();
-        if (entry != null && entry.isDirectory()) {
+    public void enterSelected() throws AppCommandException {
+        Optional<FileEntry> selected = currentEntry();
+        if (selected.isEmpty()) {
+            return;
+        }
+        FileEntry entry = selected.get();
+
+        if (entry.isDirectory()) {
             open(entry.path());
+        } else if (entry.isFile()) {
+            try {
+                fileOpener.open(entry.path());
+            } catch (UnsupportedFileTypeException e) {
+                throw new AppCommandException(e.getMessage(), e);
+            } catch (IOException e) {
+                throw new AppCommandException("Cannot open " + entry.name() + ": " + e.getMessage(), e);
+            }
         }
     }
 
@@ -70,8 +89,10 @@ public final class ExplorerHandler {
         }
     }
 
-    private FileEntry currentEntry() {
-        return current.entries().isEmpty() ? null : current.entries().get(cursor);
+    private Optional<FileEntry> currentEntry() {
+        return current.entries().isEmpty()
+                ? Optional.empty()
+                : Optional.of(current.entries().get(cursor));
     }
 
     private void loadNearest(Path dir) {
@@ -117,10 +138,7 @@ public final class ExplorerHandler {
     }
 
     private void rememberSelection() {
-        FileEntry entry = currentEntry();
-        if (entry != null) {
-            selectedPaths.put(current.directory(), entry.path());
-        }
+        currentEntry().ifPresent(entry -> selectedPaths.put(current.directory(), entry.path()));
     }
 
     private int clamp(int index) {
@@ -128,7 +146,7 @@ public final class ExplorerHandler {
         if (size == 0) {
             return 0;
         }
-        return Math.max(0, Math.min(index, size - 1));
+        return Math.clamp(index, 0, size - 1);
     }
 
     private void notifyListing() {
@@ -138,6 +156,6 @@ public final class ExplorerHandler {
     }
 
     private void notifyEntry() {
-        onCurrentEntryChanged.accept(currentEntry());
+        currentEntry().ifPresent(onCurrentEntryChanged);
     }
 }

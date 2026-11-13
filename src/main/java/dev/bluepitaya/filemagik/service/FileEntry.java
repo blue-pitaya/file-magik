@@ -16,4 +16,8 @@ public record FileEntry(Path path, String name, Type type) {
     public boolean isDirectory() {
         return type == Type.DIRECTORY || type == Type.SYMLINK_DIRECTORY;
     }
+
+    public boolean isFile() {
+        return type == Type.FILE || type == Type.SYMLINK_FILE;
+    }
 }
