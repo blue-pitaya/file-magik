@@ -13,7 +13,7 @@ import java.io.IOException;
 
 final class App {
     public static void main(String[] args) throws IOException {
-        AppConfig config = new AppConfig();
+        AppConfig config = AppConfig.fromArgs(args);
         Terminal terminal = new Terminal();
         EventLoop eventLoop = new EventLoop();
         FileService fileService = new FileService();
